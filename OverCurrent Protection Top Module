@@ -4,10 +4,12 @@ module Current_Pro(
     input clk,              // System clock input
     input comp_outA,        // Comparator output from LM339N (high when overcurrent is detected) on channel A
     input comp_outB,        // Comparator output from LM339N (high when overcurrent is detected) on channel B
+    input sw[0],
     output reg ena,         // Enable signal for Motor 1 
     output reg enb,
     output reg in1,
-    output reg in3          // Enable signal for Motor 2
+    output reg in3,          // Enable signal for Motor 2
+    output led[0]
 );
     // Timer variable for measuring time duration of overcurrent condition
     reg [27:0] timec;
@@ -21,6 +23,7 @@ module Current_Pro(
         enb = 1; 
         in1 = 1;
         in3 = 1;           // Enable Motor 2 initially
+        assign led[0] = sw[0];
     end
 
     // Always block triggered on the rising edge of the clock
