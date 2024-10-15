@@ -26,4 +26,3 @@ module Current_Pro_tb;
         #50 clk <= ~clk; // Clock toggles every 50 time units
     end 
    
-endmodule
