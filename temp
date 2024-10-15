@@ -1,0 +1,220 @@
+module ColorSensorStateMachine(
+    input clk,
+    input reset,
+    input signal_in,
+    output reg done_color = 0,
+    output reg [31:0] red = 0,
+    output reg [31:0] green = 0,
+    output reg [31:0] blue = 0,
+    output reg S2 = 0,  // Control signal for RGB photodiode selection
+    output reg S3 = 0,  // Control signal for RGB photodiode selection
+    output reg [1:0] color_state = 0,
+    output [31:0] frequency,
+    output done
+);
+
+    // Frequency measurement instance
+    freq_meas f1 (
+        .CLK100MHZ(clk),       // Correctly mapping clk signal to the instance
+        .signal_in(signal_in),
+        .reset(reset),
+        .frequency(frequency),
+        .done(done)
+    );
+
+    // Define the states
+    localparam BLANK_STATE = 2'b00,  // Blank state (initial state)
+               RED_STATE   = 2'b01,
+               GREEN_STATE = 2'b10,
+               BLUE_STATE  = 2'b11;
+
+    // Sequential logic for the state machine
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            // Reset to the blank (idle) state
+            color_state <= BLANK_STATE;
+            S2 <= 1'b0;  // Default values for blank state
+            S3 <= 1'b0;
+            done_color <= 0;
+            red <= 0;
+            green <= 0;
+            blue <= 0;
+        end else if (done) begin
+            // Move to the next state after frequency measurement
+            case (color_state)
+                BLANK_STATE: begin
+                    done_color <= 0;
+                    color_state <= RED_STATE;
+                    S2 <= 1'b0;  // S2 and S3 values for Red state
+                    S3 <= 1'b0;
+                end
+                RED_STATE: begin
+                    red <= frequency;  // Capture frequency for red
+                    color_state <= GREEN_STATE;
+                    S2 <= 1'b1;  // S2 and S3 values for Green state
+                    S3 <= 1'b1;
+                end
+                GREEN_STATE: begin
+                    green <= frequency;  // Capture frequency for green
+                    color_state <= BLUE_STATE;
+                    S2 <= 1'b0;  // S2 and S3 values for Blue state
+                    S3 <= 1'b1;
+                end
+                BLUE_STATE: begin
+                    blue <= frequency;  // Capture frequency for blue
+                    done_color <= 1;  // Indicate all colors captured
+                    color_state <= BLANK_STATE;
+                    S2 <= 1'b0;  // Reset S2 and S3 to default values
+                    S3 <= 1'b0;
+                end
+            endcase
+        end
+    end
+endmodule
+
+
+
+module freq_meas(
+    input CLK100MHZ,     // 100 MHz clock input from Basys 3 board
+    input signal_in,     // Input signal from color sensor
+    input reset,         // Reset signal
+    output reg [31:0] frequency, // Output frequency count in Hz
+    output reg done      // Signal indicating measurement is done
+);
+
+    reg [31:0] edge_count;     // Counts edges of the input signal
+    reg [31:0] time_counter;   // Counts clock cycles for the measurement period
+    reg prev_signal_in;        // Holds the previous state of signal_in for edge detection
+    reg [31:0] clk_cycles_in_test_period = 'd100000000;  // 1 second period at 100 MHz
+
+    initial begin
+        edge_count = 0;
+        time_counter = 0;
+        frequency = 0;
+        prev_signal_in = 0;  // Initialize to 0 (signal_in expected to start low)
+        done = 0;
+    end
+
+    always @(posedge CLK100MHZ or posedge reset) begin
+        if (reset) begin
+            edge_count <= 0;
+            time_counter <= 0;
+            frequency <= 0;
+            prev_signal_in <= 0;
+            done <= 0;  // Ensure done is low on reset
+            $display("Reset activated at time %t", $time);
+        end else begin
+            time_counter <= time_counter + 1;
+
+            // Edge detection: check if signal_in transitions from 0 to 1 (rising edge)
+            if (prev_signal_in == 0 && signal_in == 1) begin
+                edge_count <= edge_count + 1;
+                $display("Edge detected at time %t", $time);
+            end
+
+            prev_signal_in <= signal_in;
+
+            // When the time period is complete, calculate the frequency
+            if (time_counter == clk_cycles_in_test_period) begin
+                frequency <= edge_count;  // Frequency is the number of edges in the period
+                done <= 1;                // Set done high
+                $display("Final Frequency: %d, Time: %t", frequency, $time);
+
+                // Reset time_counter and edge_count for the next period
+                time_counter <= 0;
+                edge_count <= 0;
+            end else begin
+                done <= 0;
+            end
+        end
+    end
+endmodule
+
+
+`timescale 1ns/1ps
+
+module tb_ColorSensorStateMachine;
+
+    reg clk;
+    reg reset;
+    reg signal_in;
+    wire done_color;
+    wire [31:0] red;
+    wire [31:0] green;
+    wire [31:0] blue;
+    wire [1:0] color_state;
+    wire [31:0] frequency;
+    wire done;
+    
+    // Instantiate the ColorStateMachine
+    ColorSensorStateMachine uut (
+        .clk(clk),
+        .reset(reset),
+        .signal_in(signal_in),
+        .done_color(done_color),
+        .red(red),
+        .green(green),
+        .blue(blue),
+        .color_state(color_state),
+        .frequency(frequency),
+        .done(done)
+    );
+    
+    // Clock generation
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;  // 100 MHz clock (10ns period)
+    end
+
+    // Testbench control
+    initial begin
+        // Initialize inputs
+        reset = 1;
+        signal_in = 0;
+
+        // Reset the design
+        #20 reset = 0;
+
+        // Simulate input signals to trigger different color states
+        #50 simulate_signal_in(10);  // Generate 10 pulses for Red state (S2=0, S3=0)
+        wait_for_done();  // Wait until the measurement is done
+        #100 simulate_signal_in(20);  // Generate 20 pulses for Green state (S2=1, S3=1)
+        wait_for_done();  // Wait until the measurement is done
+        #100 simulate_signal_in(30);  // Generate 30 pulses for Blue state (S2=0, S3=1)
+        wait_for_done();  // Wait until the measurement is done
+        
+        #100 $finish;
+    end
+
+    // Helper task to generate pulses on signal_in
+    task simulate_signal_in;
+        input integer num_pulses;
+        integer i;
+        begin
+            for (i = 0; i < num_pulses; i = i + 1) begin
+                signal_in = 1;
+                #10;  // 10ns high
+                signal_in = 0;
+                #10;  // 10ns low
+            end
+        end
+    endtask
+
+    // Helper task to wait for the done signal
+    task wait_for_done;
+        begin
+            @(posedge done);
+            #10;  // Ensure the signal is stable
+            $display("Color State: %b | Frequency: %d | Red: %d | Green: %d | Blue: %d | Done: %b",
+                      color_state, frequency, red, green, blue, done_color);
+        end
+    endtask
+
+    // Monitor output
+    initial begin
+        $monitor("Time: %0t | Color State: %b | Done Color: %b | Frequency: %d | Red: %d | Green: %d | Blue: %d | Done: %b",
+                 $time, color_state, done_color, frequency, red, green, blue, done);
+    end
+
+endmodule
+
