@@ -39,12 +39,25 @@ module Current_Pro(
         In1 <= 1;
         In3 <= 1;
         end
-        oc_flag = LED0;
+        LED0 = oc_flag;
         // If an overcurrent condition has been detected
         if (oc_flag) begin
             timec <= timec + 1; // Increment the timer on each clock cycle
             // Check if the timer has not exceeded the threshold (200 million clock cycles)
             if (timec <= 200000000) begin 
+                ena <= 0;      // Disable Motor 1
+                enb <= 0;      // Disable Motor 2
+                In1 <= 0; 
+                In3 <= 0;      
+                     
+            end else begin
+                oc_flag <= 0;  // Clear the overcurrent flag after timeout
+                timec <= 0;    // Reset the timer
+            end
+        end
+    end
+endmodule
+
                 ena <= 0;      // Disable Motor 1
                 enb <= 0;      // Disable Motor 2
                 In1 <= 0; 
